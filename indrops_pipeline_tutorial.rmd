@@ -106,9 +106,10 @@ conda config --add envs_dirs '/~local/share/miniconda/envs'
 conda create -p ~/local/share/miniconda/envs/pyndrops python numpy \
     scipy pandas pyyaml matplotlib pip 
 source activate pyndrops
-conda install -c bioconda rsem
 conda install -c bioconda samtools
 conda install -c bioconda bowtie
+conda install -c r r
+conda install -c bioconda rsem
 # only need this if java is not already on your path
 conda install -c bioconda java-jdk
 pip install pyfasta pysam==0.9.1
