@@ -1,0 +1,270 @@
+---
+title: "Using the inDrops Pipeline"
+author: "Eric J. Kort"
+date: "`r Sys.Date()`"
+subtitle: A Beginner's Guide
+output:
+    html_document:
+      toc: true
+      theme: united
+---
+
+<style>
+body{
+  font-family: 'Oxygen', sans-serif;
+  font-size: 14px;
+  line-height: 24px;
+}
+
+h1,h2,h3,h4 {
+  font-family: 'Raleway', sans-serif;
+}
+
+.container { width: 1000px; }
+
+h1 {
+  background-color: #D4DAEC;
+  text-indent: 10px; 
+}
+
+h2 {
+  background-color: #D4DAEC;
+  text-indent: 10px; 
+}
+
+h4 {
+  text-indent: 20px;
+}
+
+.author {
+  text-indent: 0px;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.date {
+  text-indent: 0px;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+blockquote {
+  font-size: 12px;
+}
+
+g-table-intro h4 {
+  text-indent: 0px;
+}
+</style>
+
+
+```{r setup, include=FALSE}
+library(tufte)
+# invalidate cache when the tufte version changes
+knitr::opts_chunk$set(tidy = FALSE, cache.extra = packageVersion('tufte'))
+options(htmltools.dir.version = FALSE)
+```
+
+The inDrop platform performs single cell encapsulation and barcoding, enabling single-cell RNA sequencing.  Sequencing data from libraries produced from this workflow must be processed by an informatics pipeline that is aware of the barcoding scheme, such that transcripts from different cells can be distinguished.  A python based [pipeline](https://github.com/indrops/indrops) is available, built on top of the usual sequence analysis tools (bowtie, trimmomatic, samtools).
+
+The instructions there were not quite explicit enough for my pea-sized intellect, so I prepared this document to provide some additional details and hopefully expedite the efforts of users new to the inDrop platform to get from Fasta to Transcript Counts.
+
+## Hardware
+
+I have only run the pipeline on Linux platforms.  However, I can think of no reason the pipeline could not be run on Windows as long as the requisite software tools are installed.  The remainder of this document assumes you are running on Linux (whether bare metal, cloud, or VM).
+
+The pipeline requires A Lot Of Memory™.  How much?  I am not sure.  An off the cuff estimate would be at least 16GB of available RAM, since the sorting step loads each library "part" into memory to sort it.  I highly recommend paralellizing the process (as described below).  
+
+> **EC2 Tidbit:** I run the pipeline on Amazon's EC2 using the c5.9xlarge instance type (36 virtual CPUs, 72GB memory).  That has been working well and a spot instance can be run for $0.50-$1.00 per hour.  While this works, ideally you would have a higher memory:processor ratio since, as mentioned above the sort steps takes a lot of memory, preventing full use of the processors at that step.  For example, the r4.4xlarge (16 vCPUs, 122GB RAM) or even r4.8xlarge (32/244) would be likely be a better choice, with spot prices that are similar to or lower than the c5.9xlarge (although I am not sure how the computational speed of the c5 series compares to the r4 series).
+
+## Pre-requisites
+
+The specific software requirements for the pipeline are described in the [indrops repository README](https://github.com/indrops/indrops/blob/master/README.md).  IMHO by far the simplest way to get the correct tool chain, without root access and without messing up anything else, is to use Miniconda to create a working environment just for inDrops sequencing data analysis.
+
+I like to build things in ~/build and install things in ~/local, with software packages (like the inDrops pipeline and Miniconda going in ~/local/share).  By using Miniconda, we don't need to worry about changing the PATH environment variable ourselves.
+
+You could proceed like this:
+
+```bash
+# if you don't have these already
+mkdir ~/local
+mkdir ~/local/share
+mkdir ~/build
+
+# Install miniconda (NOT miniconda2) into ~/local/share/miniconda
+cd ~/build
+wget https://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh
+
+# run the installer. When prompted, tell it to install into ~/local/share/miniconda
+./Miniconda-latest-Linux-x86_64.sh
+
+# start a new bash to pickup the updated PATH from the Miniconda install
+bash
+
+# and install the dependencies
+conda config --add envs_dirs '/~local/share/miniconda/envs'
+conda create -p ~/local/share/miniconda/envs/pyndrops python numpy \
+    scipy pandas pyyaml matplotlib pip 
+source activate pyndrops
+conda install -c bioconda rsem
+conda install -c bioconda samtools
+conda install -c bioconda bowtie
+# only need this if java is not already on your path
+conda install -c bioconda java-jdk
+pip install pyfasta pysam==0.9.1
+
+```
+
+## Install the inDrops pipeline
+
+Now it gets easy.  
+
+```bash
+cd ~/local/share
+git clone https://github.com/indrops/indrops
+```
+
+>**EC2 Tidbit:**  This might be a good moment, particularly if you are using a spot instance, to make an image so you can easily create new instances of your server in the future, pre-installed with all these tools.
+
+##Create your project.yaml 
+
+In order to proceed with building the bowties indices and processing your sequencing data, you will need to set things up with a project.yaml file.  This is well documented in the [indrop README](https://github.com/indrops/indrops).  Here is another example:
+
+```yaml
+project_name : "my_project"
+project_dir : "/path/to/your/fastqs/" # Where your fastq files locate.
+sequencing_runs :
+    # any name, used during run but you won't see it later...
+  - name : "MY_RUN" 
+    version : "v2" # Must put v2 for 1CellBio beads.
+    dir : "/path/where/you/want/stuff/put/" # Directory with all the outputs from pipeline.
+    fastq_path : "{library_prefix}_{split_affix}_{read}_001.fastq.gz"
+    split_affixes : ["L001", "L002", "L003", "L004"]
+    libraries :
+      - {library_name: "PROJECT_NAME", library_prefix: "MYLIB"} 
+      # library_name is the name for output folder where results will go, and the prefix for result files 
+      # the prefix is anything ahead of the library_prefix in your 
+      # demultiplexed fasta files.
+paths : 
+  # this is where we will build the bowtie index
+  bowtie_index : "/mnt/data/seq/Transcriptomes/Human_hg38_cDNA" 
+```
+
+## Build the bowtie indices
+
+Next we need to index the genome.  We download the latest genome builds and then build the index.  
+
+
+```bash
+# adjust path as needed:
+cd /mnt/data/seq/Transcriptomes
+
+# if you haven't already...
+source activate pyndrops
+
+# Download the soft-masked, primary assembly Genome Fasta file
+wget ftp://ftp.ensembl.org/pub/release-92/fasta/mus_musculus/dna/Mus_musculus.GRCm38.dna_sm.primary_assembly.fa.gz
+# Download the corresponding GTF file.
+wget ftp://ftp.ensembl.org/pub/release-92/gtf/mus_musculus/Mus_musculus.GRCm38.85.gtf.gz
+
+python ~/local/share/indrops/indrops.py /path/to/your/project.yaml build_index \
+       --genome-fasta-gz Mus_musculus.GRCm38.dna_sm.primary_assembly.fa.gz \
+       --ensembl-gtf-gz  Mus_musculus.GRCm38.92.gtf.gz
+
+```
+
+And so on for any and all genomes you intend to align to.
+
+> **EC2 Tidbit**:
+>For data files like this, I like to mount an EBS volume at /mnt/data so that I can swap out or add additional drives if I run out of space.  Also, then the data will survive instance termination without incorporating the data into an snapshot/image. But you could also place these files at ~/local/share/Transcriptomes if you have plenty of room, or somewhere else as desired.
+
+## Run the pipeline (in parallel)
+
+The indrop pipeline has facilities for parallelization in so far as it will break the work up into pieces for you.  However, you need to launch each chunk yourself.  In other words, if you use the `--total-workers=10` argument to the indrops tasks, you must launch the task 10 times, specifiying the appropriate worker-number for each task.  Rather than do this by hand, though, we can use the linux tools `seq` and `xargs`.  Here is an example script that will generate the necessary commands to run the indrop commands in parallel.  Adjust the 
+paths as needed.
+
+```bash
+source activate pyndrops
+
+export INDROP_PATH=/home/YOURUSERNAME/local/share/indrops
+export YAML=project_mm.yaml
+
+# change the number of workers according the processors available
+export WORKERS=30
+export WORKERLIM=$(($WORKERS-1))
+
+seq 0 $WORKERS | xargs -n1 -P$WORKERS \
+    python $INDROP_PATH/indrops.py \
+      $YAML \
+      filter \
+      --total-workers $WORKERS \
+      --worker-index
+
+# this step is fast...no need to parallelize
+python $INDROP_PATH/indrops.py \
+    $YAML \
+    identify_abundant_barcodes
+
+# memory intensive.  Could throttle down.  More than 5 workers seems
+# to follow the law of diminishing returns at first glance on my server.
+seq 0 $WORKERS | xargs -n1 -P$WORKERS \
+    python $INDROP_PATH/indrops.py \
+      $YAML \
+      sort \
+       --total-workers $WORKERS \
+       --worker-index
+
+seq 0 $WORKERLIM | xargs -n1 -P$WORKERS \
+      python $INDROP_PATH/indrops.py \
+      $YAML \
+      quantify \
+       --min-reads 200 \
+       --min-counts 100 \
+       --total-workers $WORKERS \
+       --no-bam \
+       --worker-index
+
+# NOTE: This is single threaded.  But it still needs to know how many
+# workers were used in previous step so it can pick up all the pieces
+    python $INDROP_PATH/indrops.py \
+      $YAML \
+      aggregate \
+      --total-workers $WORKERS
+
+```
+
+Assuming you save that as `process.sh` and `chmod 755 process.sh`. you can simply issue this command:
+
+```bash
+./process.sh
+```
+
+And go home for the day.  Depending on the size of the library you are processing, this may run for several hours or several days.
+
+
+## Prepare data for loading
+
+Once you have generated your PROJECT_NAME.counts.tsv.gz file, you are ready for downstream analysis.  For me, that means loading the data in R and going from there.  To make it easier to load the counts in R,I like to strip out the barcodes into a separate text file, and then remove it from the counts file.  That way the data columns of the counts file are all one type, so I can use `read.big.matrix`.
+
+```bash
+gunzip PROJECT_NAME.counts.tsv.gz
+cut -f1 PROJECT_NAME.counts.tsv > PROJECT_NAME.rownames.tsv
+cut -f2- PROJECT_NAME.counts.tsv > PROJECT_NAME.mouse.no_rn.tsv
+```
+
+Then I load it, do some crude filtering, and save the data as an RDS file for quick loading in the future.
+
+```R
+dat <- read.big.matrix("PROJECT_NAME.counts.no_rn.tsv",
+                       header=TRUE,
+                       sep="\t")
+rn <- read.delim("PROJECT_NAME.counts.rownames.tsv", as.is=TRUE)[,1]
+rownames(dat) <- rn
+saveRDS(dat, file="project_name_counts.rds")
+```
+From here you are ready to go into analysis of your own design, or utilize one of the many great packages out there developed specifically for single cell RNASeq analysis, such as [SCDE](http://hms-dbmi.github.io/scde/) or [Monocle](http://cole-trapnell-lab.github.io/monocle-release/).
+
+Good luck, and please send along any comments you might have on this tutorial.
+
+
+
