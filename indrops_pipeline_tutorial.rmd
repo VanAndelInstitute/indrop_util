@@ -81,6 +81,7 @@ The pipeline requires A Lot Of Memory™.  How much?  I am not sure.  An off the
 
 The specific software requirements for the pipeline are described in the [indrops repository README](https://github.com/indrops/indrops/blob/master/README.md).  IMHO by far the simplest way to get the correct tool chain, without root access and without messing up anything else, is to use Miniconda to create a working environment just for inDrops sequencing data analysis.
 
+(Note that this still assumes your environment has the essential build tools installed, as in `sudo apt-get install build-essentials; sudo apt-get install gfortran`)
 I like to build things in ~/build and install things in ~/local, with software packages (like the inDrops pipeline and Miniconda going in ~/local/share).  By using Miniconda, we don't need to worry about changing the PATH environment variable ourselves.
 
 You could proceed like this:
@@ -102,7 +103,7 @@ wget https://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh
 bash
 
 # and install the dependencies
-conda config --add envs_dirs '/~local/share/miniconda/envs'
+conda config --add envs_dirs '~/local/share/miniconda/envs'
 conda create -p ~/local/share/miniconda/envs/pyndrops python numpy \
     scipy pandas pyyaml matplotlib pip 
 source activate pyndrops
@@ -110,6 +111,7 @@ conda install -c bioconda samtools
 conda install -c bioconda bowtie
 conda install -c r r
 conda install -c bioconda rsem
+conda install -c conda install libgfortran==1
 # only need this if java is not already on your path
 conda install -c bioconda java-jdk
 pip install pyfasta pysam==0.9.1
@@ -155,6 +157,7 @@ paths :
 
 Next we need to index the genome.  We download the latest genome builds and then build the index.  
 
+**Note that if you do not specify bowtie_dir in project.yaml this will fail unless you apply [patch from issue #16](https://github.com/indrops/indrops/issues/16).**
 
 ```bash
 # adjust path as needed:
