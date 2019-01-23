@@ -11,7 +11,7 @@
 
 <meta name="author" content="Eric J. Kort" />
 
-<meta name="date" content="2018-07-13" />
+<meta name="date" content="2019-01-23" />
 
 <title>Using the inDrops Pipeline</title>
 
@@ -122,7 +122,7 @@ $(document).ready(function () {
 <h1 class="title toc-ignore">Using the inDrops Pipeline</h1>
 <h3 class="subtitle"><em>A Beginner’s Guide</em></h3>
 <h4 class="author"><em>Eric J. Kort</em></h4>
-<h4 class="date"><em>2018-07-13</em></h4>
+<h4 class="date"><em>2019-01-23</em></h4>
 
 </div>
 
@@ -198,7 +198,7 @@ g-table-intro h4 {
 <div id="pre-requisites" class="section level2">
 <h2>Pre-requisites</h2>
 <p>The specific software requirements for the pipeline are described in the <a href="https://github.com/indrops/indrops/blob/master/README.md">indrops repository README</a>. IMHO by far the simplest way to get the correct tool chain, without root access and without messing up anything else, is to use Miniconda to create a working environment just for inDrops sequencing data analysis.</p>
-<p>I like to build things in ~/build and install things in ~/local, with software packages (like the inDrops pipeline and Miniconda going in ~/local/share). By using Miniconda, we don’t need to worry about changing the PATH environment variable ourselves.</p>
+<p>(Note that this still assumes your environment has the essential build tools installed, as in <code>sudo apt-get install build-essentials; sudo apt-get install gfortran</code>) I like to build things in ~/build and install things in ~/local, with software packages (like the inDrops pipeline and Miniconda going in ~/local/share). By using Miniconda, we don’t need to worry about changing the PATH environment variable ourselves.</p>
 <p>You could proceed like this:</p>
 <pre class="bash"><code># if you don't have these already
 mkdir ~/local
@@ -216,7 +216,7 @@ wget https://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh
 bash
 
 # and install the dependencies
-conda config --add envs_dirs '/~local/share/miniconda/envs'
+conda config --add envs_dirs '~/local/share/miniconda/envs'
 conda create -p ~/local/share/miniconda/envs/pyndrops python numpy \
     scipy pandas pyyaml matplotlib pip 
 source activate pyndrops
@@ -224,6 +224,7 @@ conda install -c bioconda samtools
 conda install -c bioconda bowtie
 conda install -c r r
 conda install -c bioconda rsem
+conda install -c conda install libgfortran==1
 # only need this if java is not already on your path
 conda install -c bioconda java-jdk
 pip install pyfasta pysam==0.9.1
@@ -242,26 +243,30 @@ git clone https://github.com/indrops/indrops</code></pre>
 <h2>Create your project.yaml</h2>
 <p>In order to proceed with building the bowties indices and processing your sequencing data, you will need to set things up with a project.yaml file. This is well documented in the <a href="https://github.com/indrops/indrops">indrop README</a>. Here is another example:</p>
 <pre class="yaml"><code>project_name : &quot;my_project&quot;
-project_dir : &quot;/path/to/your/fastqs/&quot; # Where your fastq files locate.
+project_dir : &quot;/path/where/you/want/stuff/put/&quot; # Where the pipeline output will go
 sequencing_runs :
     # any name, used during run but you won't see it later...
   - name : &quot;MY_RUN&quot; 
     version : &quot;v2&quot; # Must put v2 for 1CellBio beads.
-    dir : &quot;/path/where/you/want/stuff/put/&quot; # Directory with all the outputs from pipeline.
+    dir : &quot;/path/to/fastqs&quot; # Where your fastqs are.
     fastq_path : &quot;{library_prefix}_{split_affix}_{read}_001.fastq.gz&quot;
     split_affixes : [&quot;L001&quot;, &quot;L002&quot;, &quot;L003&quot;, &quot;L004&quot;]
     libraries :
-      - {library_name: &quot;PROJECT_NAME&quot;, library_prefix: &quot;MYLIB&quot;} 
+      - {library_name: &quot;library_1&quot;, library_prefix: &quot;LIB1&quot;} 
+      - {library_name: &quot;library_2&quot;, library_prefix: &quot;LIB2&quot;} 
       # library_name is the name for output folder where results will go, and the prefix for result files 
       # the prefix is anything ahead of the library_prefix in your 
       # demultiplexed fasta files.
 paths : 
   # this is where we will build the bowtie index
   bowtie_index : &quot;/mnt/data/seq/Transcriptomes/Human_hg38_cDNA&quot; </code></pre>
+<p>Here is a one liner to generate the libraries list (run in the directory containing the fastqs):</p>
+<pre class="bash"><code>ls *R1* | cut -d &quot;_&quot; -f1 | xargs -n1 -I{} echo &quot; - {library_name: \&quot;{}\&quot;, library_prefix: \&quot;{}\&quot;}&quot;</code></pre>
 </div>
 <div id="build-the-bowtie-indices" class="section level2">
 <h2>Build the bowtie indices</h2>
 <p>Next we need to index the genome. We download the latest genome builds and then build the index.</p>
+<p><strong>Note that if you do not specify bowtie_dir in project.yaml this will fail unless you apply <a href="https://github.com/indrops/indrops/issues/16">patch from issue #16</a>.</strong></p>
 <pre class="bash"><code># adjust path as needed:
 cd /mnt/data/seq/Transcriptomes
 
