@@ -152,6 +152,11 @@ paths :
   # this is where we will build the bowtie index
   bowtie_index : "/mnt/data/seq/Transcriptomes/Human_hg38_cDNA" 
 ```
+Here is a one liner to generate the libraries list (run in the directory containing the fastqs):
+
+```bash
+ls *R1* | cut -d "_" -f1 | xargs -n1 -I{} echo " - {library_name: \"{}\", library_prefix: \"{}\"}"
+```
 
 ## Build the bowtie indices
 
