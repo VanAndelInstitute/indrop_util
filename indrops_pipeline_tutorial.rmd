@@ -135,16 +135,17 @@ In order to proceed with building the bowties indices and processing your sequen
 
 ```yaml
 project_name : "my_project"
-project_dir : "/path/to/your/fastqs/" # Where your fastq files locate.
+project_dir : "/path/where/you/want/stuff/put/" # Where the pipeline output will go
 sequencing_runs :
     # any name, used during run but you won't see it later...
   - name : "MY_RUN" 
     version : "v2" # Must put v2 for 1CellBio beads.
-    dir : "/path/where/you/want/stuff/put/" # Directory with all the outputs from pipeline.
+    dir : "/path/to/fastqs" # Where your fastqs are.
     fastq_path : "{library_prefix}_{split_affix}_{read}_001.fastq.gz"
     split_affixes : ["L001", "L002", "L003", "L004"]
     libraries :
-      - {library_name: "PROJECT_NAME", library_prefix: "MYLIB"} 
+      - {library_name: "library_1", library_prefix: "LIB1"} 
+      - {library_name: "library_2", library_prefix: "LIB2"} 
       # library_name is the name for output folder where results will go, and the prefix for result files 
       # the prefix is anything ahead of the library_prefix in your 
       # demultiplexed fasta files.
