@@ -81,7 +81,9 @@ The pipeline requires A Lot Of Memory™.  How much?  I am not sure.  An off the
 
 The specific software requirements for the pipeline are described in the [indrops repository README](https://github.com/indrops/indrops/blob/master/README.md).  IMHO by far the simplest way to get the correct tool chain, without root access and without messing up anything else, is to use Miniconda to create a working environment just for inDrops sequencing data analysis.
 
-(Note that this still assumes your environment has the essential build tools installed, as in `sudo apt-get install build-essentials; sudo apt-get install gfortran`)
+(Note that this still assumes your environment has the essential build tools installed, as in `sudo apt-get install build-essentials; sudo apt-get install gfortran`. On my local centos based system I also needed to install [libopenssl](https://github.com/openssl/openssl/releases) to avoid errors with the `pip install pyfasta` step below.)
+
+
 I like to build things in ~/build and install things in ~/local, with software packages (like the inDrops pipeline and Miniconda going in ~/local/share).  By using Miniconda, we don't need to worry about changing the PATH environment variable ourselves.
 
 You could proceed like this:
